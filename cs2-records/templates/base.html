@@ -1,0 +1,41 @@
+{{define "header"}}<!DOCTYPE html>
+<html lang="en" class="bg-slate-950">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{.Title}} · CS2 Surf Records</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .gradient-mesh {
+      background:
+        radial-gradient(ellipse at top left, rgb(16 185 129 / 0.08), transparent 50%),
+        radial-gradient(ellipse at top right, rgb(56 189 248 / 0.06), transparent 50%);
+      min-height: 100vh;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-200">
+  <div class="gradient-mesh">
+    <header class="border-b border-slate-800/80 bg-slate-950/60 backdrop-blur sticky top-0 z-10">
+      <div class="max-w-6xl mx-auto px-6 py-4 flex items-center gap-4">
+        <a href="/" class="text-lg font-semibold text-slate-100 tracking-tight hover:text-emerald-300 transition">
+          <span class="text-emerald-400">⚡</span> CS2 Surf Records
+        </a>
+        <nav class="ml-auto flex items-center gap-5 text-sm">
+          <a href="/" class="text-slate-400 hover:text-slate-100 transition">Home</a>
+        </nav>
+      </div>
+    </header>
+    <main class="max-w-6xl mx-auto px-6 py-8">
+{{end}}
+
+{{define "footer"}}
+    </main>
+    <footer class="border-t border-slate-800/50 mt-16 py-6 text-center text-xs text-slate-500">
+      Live data — auto-cached for 30s · powered by GameCtlSurfHUD
+    </footer>
+  </div>
+</body>
+</html>{{end}}

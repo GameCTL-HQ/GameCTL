@@ -1,0 +1,74 @@
+# cs2-records — standalone pretty-UI for the surf records JSON.
+#
+# Mounts the EXISTING cs2-pvc read-only (the same NFS-RWX volume the cs2
+# server writes to from the GameCtlSurfHUD plugin). No separate PV needed
+# — NFS-static + ReadWriteMany allows multiple pods to mount concurrently.
+#
+# Service is ClusterIP only; expose externally via ProxyCTL.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cs2-records
+  namespace: gamectl
+  labels:
+    app: cs2-records
+    app.kubernetes.io/part-of: games
+    app.kubernetes.io/managed-by: gamectl
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cs2-records
+  template:
+    metadata:
+      labels:
+        app: cs2-records
+    spec:
+      containers:
+      - name: cs2-records
+        image: replace-me
+        imagePullPolicy: Always
+        env:
+        - name: GAMECTL_RECORDS_PATH
+          value: /data/gamectl_surf_records.json
+        - name: LISTEN_ADDR
+          value: ":8080"
+        ports:
+        - name: http
+          containerPort: 8080
+        livenessProbe:
+          httpGet: { path: /healthz, port: http }
+          periodSeconds: 20
+        readinessProbe:
+          httpGet: { path: /healthz, port: http }
+          periodSeconds: 5
+        resources:
+          requests: { cpu: "10m",  memory: "32Mi" }
+          limits:   { cpu: "200m", memory: "128Mi" }
+        volumeMounts:
+        - name: cs2-data
+          mountPath: /data
+          readOnly: true
+      volumes:
+      - name: cs2-data
+        persistentVolumeClaim:
+          # Same PVC the cs2 server uses. RWX NFS lets us co-mount.
+          claimName: cs2-pvc
+          readOnly: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cs2-records
+  namespace: gamectl
+  labels:
+    app: cs2-records
+spec:
+  type: ClusterIP
+  selector:
+    app: cs2-records
+  ports:
+  - name: http
+    port: 80
+    targetPort: http

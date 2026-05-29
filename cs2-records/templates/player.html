@@ -1,0 +1,71 @@
+{{template "header" .}}
+
+{{with .Profile}}
+<section class="mb-8">
+  <p class="text-xs text-slate-500"><a href="/" class="hover:text-slate-300 transition">← Home</a></p>
+  <div class="mt-1 flex items-baseline gap-4 flex-wrap">
+    <h1 class="text-3xl font-bold text-slate-100 tracking-tight truncate" title="{{.Name}}">{{.Name}}</h1>
+  </div>
+  <div class="mt-5 flex flex-wrap items-center gap-5 text-sm">
+    <div class="flex items-baseline gap-2">
+      <span class="text-emerald-400 text-2xl font-bold mono">{{len .Maps}}</span>
+      <span class="text-slate-400">{{if eq (len .Maps) 1}}map{{else}}maps{{end}} ranked</span>
+    </div>
+    <span class="text-slate-700">·</span>
+    <div class="flex items-baseline gap-2">
+      <span class="text-sky-400 text-2xl font-bold mono">{{.TotalFmt}}</span>
+      <span class="text-slate-400">combined PB time</span>
+    </div>
+  </div>
+</section>
+
+{{if .Maps}}
+<div class="rounded-xl border border-slate-800 bg-slate-900/40 overflow-hidden">
+  <div class="grid grid-cols-[1fr_8rem_6rem_7rem] gap-4 px-4 py-2 border-b border-slate-800 text-[10px] uppercase tracking-widest text-slate-500 font-semibold bg-slate-950/50">
+    <span>Map</span>
+    <span class="text-right">PB</span>
+    <span class="text-right">Rank</span>
+    <span class="text-right">Set</span>
+  </div>
+  {{range .Maps}}
+  <a href="/maps/{{.Map}}" class="grid grid-cols-[1fr_8rem_6rem_7rem] gap-4 px-4 py-2 items-center border-b border-slate-800 last:border-b-0 hover:bg-slate-900/80 transition">
+    <span class="truncate text-slate-200">{{.Map}}</span>
+    <span class="text-right mono text-emerald-300 font-medium">{{.TimeFmt}}</span>
+    <span class="text-right text-xs">
+      <span class="mono {{if eq .Rank 1}}text-amber-300{{else if eq .Rank 2}}text-slate-200{{else if eq .Rank 3}}text-orange-400{{else}}text-slate-500{{end}}">#{{.Rank}}</span>
+      <span class="text-slate-600">/{{.OutOf}}</span>
+    </span>
+    <span class="text-right text-xs text-slate-500">{{.AgeFmt}}</span>
+  </a>
+  {{end}}
+</div>
+{{else}}
+<div class="rounded-lg border border-slate-800 bg-slate-900/40 px-6 py-10 text-center">
+  <p class="text-slate-400">No records for this player.</p>
+</div>
+{{end}}
+{{end}}
+
+{{if .Attempts}}
+<section class="mt-8">
+  <h2 class="text-xs uppercase tracking-widest text-slate-500 font-semibold mb-2">All attempts (newest first)</h2>
+  <div class="rounded-xl border border-slate-800 bg-slate-900/40 overflow-hidden">
+    <div class="grid grid-cols-[1fr_8rem_5rem_7rem] gap-4 px-4 py-2 border-b border-slate-800 text-[10px] uppercase tracking-widest text-slate-500 font-semibold bg-slate-950/50">
+      <span>Map</span>
+      <span class="text-right">Time</span>
+      <span class="text-right">PB?</span>
+      <span class="text-right">Finished</span>
+    </div>
+    {{range .Attempts}}
+    <a href="/maps/{{.Map}}" class="grid grid-cols-[1fr_8rem_5rem_7rem] gap-4 px-4 py-2 items-center border-b border-slate-800 last:border-b-0 hover:bg-slate-900/80 transition">
+      <span class="truncate text-slate-200">{{.Map}}</span>
+      <span class="text-right mono {{if .PB}}text-emerald-300{{else}}text-slate-300{{end}}">{{.TimeFmt}}</span>
+      <span class="text-right text-xs {{if .PB}}text-amber-300 font-semibold{{else}}text-slate-600{{end}}">{{if .PB}}PB{{else}}—{{end}}</span>
+      <span class="text-right text-xs text-slate-500">{{.AgeFmt}}</span>
+    </a>
+    {{end}}
+  </div>
+</section>
+{{end}}
+
+{{template "footer" .}}

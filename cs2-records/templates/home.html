@@ -1,0 +1,107 @@
+{{template "header" .}}
+
+<section class="mb-10">
+  <h1 class="text-3xl font-bold text-slate-100 tracking-tight">Server records</h1>
+  <p class="text-slate-400 mt-2">
+    Personal bests + leaderboards across every surf map run on this server.
+  </p>
+  <div class="mt-5 flex flex-wrap items-center gap-5 text-sm">
+    <div class="flex items-baseline gap-2">
+      <span class="text-emerald-400 text-2xl font-bold mono">{{.TotalRecords}}</span>
+      <span class="text-slate-400">records</span>
+    </div>
+    <span class="text-slate-700">·</span>
+    <div class="flex items-baseline gap-2">
+      <span class="text-sky-400 text-2xl font-bold mono">{{.TotalMaps}}</span>
+      <span class="text-slate-400">maps</span>
+    </div>
+    <span class="text-slate-700">·</span>
+    <div class="flex items-baseline gap-2">
+      <span class="text-violet-400 text-2xl font-bold mono">{{.TotalPlayersAll}}</span>
+      <span class="text-slate-400">players</span>
+    </div>
+  </div>
+</section>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+
+  <section class="lg:col-span-2">
+    <h2 class="text-xs uppercase tracking-widest text-slate-500 font-semibold mb-3">All maps</h2>
+    {{if .Maps}}
+    <div class="space-y-2">
+      {{range .Maps}}
+      <a href="/maps/{{.Map}}" class="block rounded-lg border border-slate-800 bg-slate-900/40 hover:bg-slate-900/80 hover:border-slate-700 transition px-4 py-3">
+        <div class="flex items-baseline gap-3">
+          <span class="font-semibold text-slate-100 flex-1 truncate">{{.Map}}</span>
+          <span class="text-xs text-slate-500">{{.RecordCount}} record{{if ne .RecordCount 1}}s{{end}}</span>
+        </div>
+        {{with .WR}}
+        <div class="mt-1.5 flex items-center gap-3 text-sm">
+          <span class="text-[10px] uppercase tracking-wider text-amber-400 font-semibold">WR</span>
+          <span class="mono text-emerald-300 text-base font-medium">{{.TimeFmt}}</span>
+          <span class="text-slate-500">by</span>
+          <span class="text-slate-200 truncate">{{.Name}}</span>
+          <span class="text-slate-600 text-xs ml-auto">{{.AgeFmt}}</span>
+        </div>
+        {{end}}
+      </a>
+      {{end}}
+    </div>
+    {{else}}
+    <div class="rounded-lg border border-slate-800 bg-slate-900/40 px-6 py-10 text-center">
+      <p class="text-slate-400">No surf records yet.</p>
+      <p class="text-slate-500 text-sm mt-2">Finish a surf run on the server to create the first one.</p>
+    </div>
+    {{end}}
+  </section>
+
+  <aside class="space-y-8">
+    <section>
+      <h2 class="text-xs uppercase tracking-widest text-slate-500 font-semibold mb-3">Top players</h2>
+      {{if .TopPlayers}}
+      <div class="rounded-lg border border-slate-800 bg-slate-900/40 divide-y divide-slate-800">
+        {{range $i, $p := .TopPlayers}}
+        <a href="/players/{{$p.SteamID64}}" class="flex items-center gap-3 px-3 py-2 hover:bg-slate-900/80 transition">
+          <span class="mono text-xs w-6 text-right font-semibold
+            {{if eq $i 0}}text-amber-300{{else if eq $i 1}}text-slate-200{{else if eq $i 2}}text-orange-400{{else}}text-slate-500{{end}}">
+            #{{$i | inc1}}
+          </span>
+          <span class="flex-1 truncate text-slate-200 text-sm">{{$p.Name}}</span>
+          {{if gt $p.WRCount 0}}
+          <span class="text-[10px] rounded px-1.5 py-0.5 bg-amber-900/40 text-amber-300 font-semibold" title="World Records held">
+            {{$p.WRCount}} WR
+          </span>
+          {{end}}
+          <span class="text-xs text-slate-500 mono">{{$p.MapsRanked}}</span>
+        </a>
+        {{end}}
+      </div>
+      {{else}}
+      <p class="text-sm text-slate-500">No players yet.</p>
+      {{end}}
+    </section>
+
+    <section>
+      <h2 class="text-xs uppercase tracking-widest text-slate-500 font-semibold mb-3">Recent finishes</h2>
+      {{if .Recents}}
+      <div class="space-y-1.5 text-sm">
+        {{range .Recents}}
+        <a href="/maps/{{.Map}}" class="block rounded-md px-3 py-2 bg-slate-900/40 hover:bg-slate-900/80 border border-slate-800 hover:border-slate-700 transition">
+          <div class="flex items-baseline gap-2">
+            <span class="mono text-emerald-300 text-xs">{{.TimeFmt}}</span>
+            <span class="text-slate-200 truncate flex-1">{{.Name}}</span>
+            <span class="text-slate-600 text-[10px]">{{.AgeFmt}}</span>
+          </div>
+          <div class="text-xs text-slate-500 truncate mt-0.5">{{.Map}}</div>
+        </a>
+        {{end}}
+      </div>
+      {{else}}
+      <p class="text-sm text-slate-500">No recent activity.</p>
+      {{end}}
+    </section>
+  </aside>
+
+</div>
+
+{{template "footer" .}}

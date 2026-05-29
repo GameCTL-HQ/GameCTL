@@ -1,0 +1,58 @@
+{{template "header" .}}
+
+<section class="mb-6">
+  <p class="text-xs text-slate-500"><a href="/" class="hover:text-slate-300 transition">← All maps</a></p>
+  <h1 class="text-3xl font-bold text-slate-100 tracking-tight mt-1 truncate" title="{{.Map}}">{{.Map}}</h1>
+  <p class="text-slate-400 mt-2">
+    <span class="mono text-emerald-300 font-semibold">{{.Count}}</span>
+    {{if eq .Count 1}}record{{else}}records{{end}} on this map.
+  </p>
+</section>
+
+{{if .Rows}}
+<div class="rounded-xl border border-slate-800 bg-slate-900/40 overflow-hidden">
+  <div class="grid grid-cols-[3rem_1fr_8rem_7rem] gap-4 px-4 py-2 border-b border-slate-800 text-[10px] uppercase tracking-widest text-slate-500 font-semibold bg-slate-950/50">
+    <span class="text-right">Rank</span>
+    <span>Player</span>
+    <span class="text-right">Time</span>
+    <span class="text-right">Set</span>
+  </div>
+  {{range $i, $r := .Rows}}
+  <a href="/players/{{$r.SteamID64}}" class="grid grid-cols-[3rem_1fr_8rem_7rem] gap-4 px-4 py-2 items-center border-b border-slate-800 last:border-b-0 hover:bg-slate-900/80 transition group">
+    <span class="text-right mono font-semibold
+      {{if eq $i 0}}text-amber-300{{else if eq $i 1}}text-slate-200{{else if eq $i 2}}text-orange-400{{else}}text-slate-600{{end}}">#{{$i | inc1}}</span>
+    <span class="truncate text-slate-200 group-hover:text-slate-100">{{$r.Name}}</span>
+    <span class="text-right mono text-emerald-300 font-medium">{{$r.TimeFmt}}</span>
+    <span class="text-right text-xs text-slate-500">{{$r.AgeFmt}}</span>
+  </a>
+  {{end}}
+</div>
+{{else}}
+<div class="rounded-lg border border-slate-800 bg-slate-900/40 px-6 py-10 text-center">
+  <p class="text-slate-400">No records on <span class="mono">{{.Map}}</span> yet.</p>
+</div>
+{{end}}
+
+{{if .Attempts}}
+<section class="mt-8">
+  <h2 class="text-xs uppercase tracking-widest text-slate-500 font-semibold mb-2">All attempts (newest first)</h2>
+  <div class="rounded-xl border border-slate-800 bg-slate-900/40 overflow-hidden">
+    <div class="grid grid-cols-[1fr_8rem_5rem_7rem] gap-4 px-4 py-2 border-b border-slate-800 text-[10px] uppercase tracking-widest text-slate-500 font-semibold bg-slate-950/50">
+      <span>Player</span>
+      <span class="text-right">Time</span>
+      <span class="text-right">PB?</span>
+      <span class="text-right">Finished</span>
+    </div>
+    {{range .Attempts}}
+    <a href="/players/{{.SteamID64}}" class="grid grid-cols-[1fr_8rem_5rem_7rem] gap-4 px-4 py-2 items-center border-b border-slate-800 last:border-b-0 hover:bg-slate-900/80 transition">
+      <span class="truncate text-slate-200">{{.Name}}</span>
+      <span class="text-right mono {{if .PB}}text-emerald-300{{else}}text-slate-300{{end}}">{{.TimeFmt}}</span>
+      <span class="text-right text-xs {{if .PB}}text-amber-300 font-semibold{{else}}text-slate-600{{end}}">{{if .PB}}PB{{else}}—{{end}}</span>
+      <span class="text-right text-xs text-slate-500">{{.AgeFmt}}</span>
+    </a>
+    {{end}}
+  </div>
+</section>
+{{end}}
+
+{{template "footer" .}}

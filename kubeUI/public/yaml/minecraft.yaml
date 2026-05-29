@@ -1,0 +1,181 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: minecraft
+
+---
+# Persistent Volume using your NAS path
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: minecraft-pv
+spec:
+  capacity:
+    storage: 50Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: nfs-storage
+  mountOptions:
+    - nfsvers=4.2
+  nfs:
+    server: 10.0.0.199
+    path: /mnt/1tbssd/minecraft
+    readOnly: false
+
+---
+# Persistent Volume Claim
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minecraft-pvc
+  namespace: minecraft
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: nfs-storage
+  volumeName: minecraft-pv
+
+---
+# Persistent Volume for BlueMap Webroot
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: bluemap-webroot-pv
+spec:
+  capacity:
+    storage: 50Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: nfs-storage
+  mountOptions:
+    - nfsvers=4.2
+  nfs:
+    server: 10.0.0.199
+    path: /mnt/1tbssd/minecraftmap
+    readOnly: false
+
+---
+# Persistent Volume Claim for BlueMap Webroot
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bluemap-webroot-pvc
+  namespace: minecraft
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: nfs-storage
+  volumeName: bluemap-webroot-pv
+
+---
+# Minecraft Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minecraft
+  namespace: minecraft
+  labels:
+    app: minecraft
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minecraft
+  template:
+    metadata:
+      labels:
+        app: minecraft
+    spec:
+      securityContext:
+        # Helps with NFS permissions; adjust if your NAS maps to a different gid
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: minecraft-server
+          image: itzg/minecraft-server:latest
+          imagePullPolicy: Always
+          env:
+            - name: EULA
+              value: "TRUE"
+            - name: MEMORY
+              value: "4G"
+            - name: TYPE
+              value: "PAPER"
+            - name: SPIGET_RESOURCES
+              value: "83557"
+            # Ensure the container does NOT overwrite ops.json on restart
+            - name: OVERRIDE_OPS
+              value: "FALSE"
+            # (Also prevent whitelist.json resets if you edit that, too)
+            - name: OVERRIDE_WHITELIST
+              value: "FALSE"
+          ports:
+            - name: minecraft-tcp
+              containerPort: 25565
+              protocol: TCP
+            - name: bluemap-web
+              containerPort: 8100
+              protocol: TCP
+          volumeMounts:
+            - name: minecraft-storage
+              mountPath: /data
+            - name: bluemap-webroot
+              mountPath: /data/bluemap/web
+      volumes:
+        - name: minecraft-storage
+          persistentVolumeClaim:
+            claimName: minecraft-pvc
+        - name: bluemap-webroot
+          persistentVolumeClaim:
+            claimName: bluemap-webroot-pvc
+
+---
+# Service for Minecraft with MetalLB
+apiVersion: v1
+kind: Service
+metadata:
+  name: minecraft-service
+  namespace: minecraft
+  annotations:
+    metallb.universe.tf/address-pool: default
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  loadBalancerIP: 10.0.0.168
+  ports:
+    - name: minecraft-tcp
+      port: 25565
+      targetPort: 25565
+      protocol: TCP
+  selector:
+    app: minecraft
+
+---
+# Service for BlueMap with MetalLB
+apiVersion: v1
+kind: Service
+metadata:
+  name: bluemap-service
+  namespace: minecraft
+  annotations:
+    metallb.universe.tf/address-pool: default
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  loadBalancerIP: 10.0.0.186
+  ports:
+    - name: bluemap-web
+      port: 8100
+      targetPort: 8100
+      protocol: TCP
+  selector:
+    app: minecraft
