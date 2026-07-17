@@ -1,0 +1,52 @@
+# CI — build, vet, test, and verify the plugin embeds are in sync with source.
+# Runs on every push/PR to the published mirror. The real pre-deploy gate is
+# scripts/clusterdeploy.sh (which runs the same plugin --check locally); this
+# is the public-repo safety net.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+      - name: build / vet / test
+        working-directory: server
+        run: |
+          go build ./...
+          go vet ./...
+          go test ./...
+
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: build UI bundle
+        working-directory: kubeUI
+        run: |
+          npm ci
+          npm run build
+
+  plugins:
+    # The cs2 plugin DLLs are base64-embedded in kubeUI/src/utils/cs2*PluginDll.js.
+    # This fails if any embed has drifted from its source (the bug that hid
+    # surf !replay/!ghostcam + RTV behind stale builds).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: verify plugin embeds are in sync with source
+        run: scripts/build-plugins.sh --check
