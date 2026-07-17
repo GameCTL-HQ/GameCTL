@@ -1,0 +1,5 @@
+bin/
+obj/
+refs/
+# generated from kubeUI/src/utils/cs2RtvCatalog.js
+GameCtlRtv.json
