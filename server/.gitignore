@@ -1,0 +1,8 @@
+bin/
+*.test
+*.out
+
+# UI bundle is generated at build time (via Makefile/Dockerfile from kubeUI/dist).
+# Keep the dir present (with .gitkeep) so //go:embed compiles even before a build.
+internal/ui/dist/*
+!internal/ui/dist/.gitkeep
