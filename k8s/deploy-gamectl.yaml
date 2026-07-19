@@ -1,0 +1,332 @@
+# GameCTL — single-binary deployment (Go server with embedded React UI).
+#
+# This replaces the old k8s/deploy-api-ui.yaml (which had a separate game-api
+# FastAPI Deployment + game-ui nginx Deployment + ConfigMap + NFS PVC for
+# kubeconfig). After this lands, the cluster runs ONE gamectl pod that serves
+# both the UI (at /) and the API (at /api/*) on port 8080.
+#
+# Trust model: the pod uses an in-cluster ServiceAccount instead of a mounted
+# kubeconfig. Same effective access as the previous "admin kubeconfig in NFS"
+# approach, but with no credentials to rotate or leak.
+#
+# SECURITY: this manifest runs PRODUCTION auth. There is no dev/admin-admin
+# shortcut anywhere in the binary.
+#
+# Recommended (zero secrets to hand-craft) — FIRST-RUN SETUP:
+#   1. kubectl apply -f k8s/deploy-gamectl.yaml
+#   2. The pod starts in setup mode (the gamectl-auth Secret is optional).
+#      Read the one-time bootstrap token from the log:
+#        kubectl -n gamectl logs deploy/gamectl | grep -i "BOOTSTRAP TOKEN"
+#   3. Open the UI; the setup screen asks for the token + a new admin
+#      user/password. GameCTL writes the gamectl-auth Secret (jwt +
+#      users.json) itself and logs you straight in. Done.
+#
+# Alternative (provision the Secret yourself, no setup screen):
+#   1. ./gamectl hash-password   -> prints a bcrypt hash; repeat per user
+#   2. Build users.json:  [{"username":"admin","password_hash":"$2a$..."}]
+#   3. kubectl create namespace gamectl
+#      kubectl -n gamectl create secret generic gamectl-auth \
+#        --from-literal=jwt=$(openssl rand -base64 64) \
+#        --from-file=users.json=./users.json
+#   4. kubectl apply -f k8s/deploy-gamectl.yaml
+# See the README for the full threat model and exposure checklist.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gamectl
+
+---
+# Optional cluster-info ConfigMap. The UI reads this via /api/cluster/info to
+# label the dashboard ("name") and show a subtitle ("description"). Edit and
+# uncomment (or `kubectl apply` separately) to brand the UI for your homelab.
+# apiVersion: v1
+# kind: ConfigMap
+# metadata:
+#   name: cluster-info
+#   namespace: gamectl
+# data:
+#   name: "examplehome"
+#   description: "3-node k3s + Longhorn + Traefik"
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gamectl
+  namespace: gamectl
+
+---
+# Namespaced Role — GameCTL's runtime identity. All mutating power is
+# confined to the `gamectl` namespace (see the README). Every game
+# server GameCTL deploys also lives here, identified by labels, not by a
+# per-game namespace. The pod CANNOT touch other namespaces, create/delete
+# namespaces, read cluster Secrets, or create cluster-scoped PVs.
+#
+# Note: persistentvolumeclaims ARE namespaced (only PersistentVolumes are
+# cluster-scoped) — so PVC create/delete is fine here. NFS games mount a
+# shared, install-time PVC via subPath; dynamic-StorageClass games get a
+# per-game PVC the provisioner fulfils. GameCTL never creates a PV.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gamectl
+  namespace: gamectl
+rules:
+  - apiGroups: [""]
+    resources:
+      - pods
+      - pods/log
+      # pods/exec — GameCTL execs into a running game pod to apply live
+      # config changes that have no API surface (e.g. writing a CS2
+      # admins.json into the server + reloading it with no restart).
+      - pods/exec
+      - services
+      - configmaps
+      - persistentvolumeclaims
+      - secrets
+      - serviceaccounts
+      - events
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - deployments/scale
+      - statefulsets
+      - statefulsets/scale
+      - daemonsets
+      - replicasets
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - ingresses
+      - networkpolicies
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+      - cronjobs
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gamectl
+  namespace: gamectl
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: gamectl
+subjects:
+  - kind: ServiceAccount
+    name: gamectl
+    namespace: gamectl
+
+---
+# The ONLY cluster-scoped grant: read-only discovery of objects that are
+# inherently cluster-scoped and power the wizard dropdowns. No writes, no
+# Secrets, no namespaces, no PVs. (services is cluster-wide read-only purely
+# so the free-IP picker can see which LoadBalancer IPs are taken.)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: gamectl-discovery
+rules:
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["metallb.io"]
+    resources: ["ipaddresspools"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: gamectl-discovery
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: gamectl-discovery
+subjects:
+  - kind: ServiceAccount
+    name: gamectl
+    namespace: gamectl
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gamectl
+  namespace: gamectl
+  labels:
+    app: gamectl
+    app.kubernetes.io/name: gamectl
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: gamectl
+  template:
+    metadata:
+      labels:
+        app: gamectl
+        app.kubernetes.io/name: gamectl
+    spec:
+      serviceAccountName: gamectl
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gamectl
+          # CHANGE ME: an image your cluster can pull. Options:
+          #   - the GitHub Actions release workflow publishes
+          #     ghcr.io/<owner>/gamectl:<tag> (see .github/workflows/);
+          #   - or build + push to your own registry (server/Makefile).
+          # scripts/install.sh substitutes this for you and pins it to the
+          # newest release tag (not :latest) so restarts never change versions.
+          image: ghcr.io/gamectl-hq/gamectl:latest
+          # Always is SAFE against unprompted upgrades because installs pin an
+          # IMMUTABLE release tag — a restart re-pulls the same version. The
+          # in-app "Update" button is the sole version-mover (it sets a new tag
+          # via UpdateSelfImage). A moving :latest tag here would make every
+          # restart a silent upgrade; pin a version tag instead.
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: GAMECTL_LISTEN
+              value: ":8080"
+            # Lets the GUI self-update roll the right Deployment even if
+            # installed into a renamed namespace.
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # Optional: pre-seed Storage Locations on startup — merged-by-name
+            # into the SAME gamectl-storage ConfigMap the Storage GUI writes
+            # (never overwrites GUI edits; no-op if the name already exists).
+            # Left as a placeholder here; scripts/install.sh substitutes it
+            # from GAMECTL_STORAGE_LOCATIONS so no site-specific IP/path ships
+            # in the manifest. Format: entries ';'-separated, fields k=v:
+            #   name=...,server=...,path=...[,type=nfs|local][,suffix=...]
+            - name: GAMECTL_STORAGE_LOCATIONS
+              value: "__STORAGE_SEED__"
+            # --- Production auth (DEFAULT). The gamectl-auth Secret is
+            #     OPTIONAL at pod-start: when it is absent (true first run)
+            #     the server boots into first-run SETUP MODE, serving only
+            #     the admin-setup screen gated by a one-time bootstrap token
+            #     printed to the pod log. Once setup writes the Secret, a
+            #     normal restart picks up the persisted jwt + users.json. ---
+            - name: GAMECTL_JWT_SECRET
+              valueFrom:
+                secretKeyRef: { name: gamectl-auth, key: jwt, optional: true }
+            - name: GAMECTL_USERS_FILE
+              value: /etc/gamectl/users.json
+          volumeMounts:
+            - name: gamectl-auth
+              mountPath: /etc/gamectl
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+      volumes:
+        - name: gamectl-auth
+          secret:
+            secretName: gamectl-auth
+            optional: true
+            items:
+              - key: users.json
+                path: users.json
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gamectl
+  namespace: gamectl
+  labels:
+    app: gamectl
+spec:
+  type: ClusterIP
+  selector:
+    app: gamectl
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+
+---
+# How you reach the GameCTL WEB UI. This is independent of how game servers
+# are exposed — those are always MetalLB LoadBalancer Services created by the
+# app (raw TCP/UDP can't go through an HTTP ingress). See the README.
+#
+# Two supported options for the UI — pick ONE:
+#
+#  (A) Ingress (below, the default). Edit the host on the two marked lines to
+#      a name that resolves to your ingress controller, and set
+#      ingressClassName to your controller (traefik, nginx, …). HTTP only for
+#      now; a commented TLS block is provided for when you add a cert.
+#
+#  (B) MetalLB LoadBalancer (no DNS needed). Delete this entire Ingress block
+#      and change the Service above to `type: LoadBalancer`. MetalLB assigns
+#      an IP; browse http://<that-ip>:8080. scripts/install.sh can do this
+#      for you and pick a free IP automatically.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gamectl
+  namespace: gamectl
+spec:
+  ingressClassName: traefik          # <-- your ingress controller class
+  # --- HTTPS (opt-in, later). Provide a cert Secret (cert-manager or your
+  #     own) named below, then uncomment. HTTP keeps working alongside it. ---
+  # tls:
+  #   - hosts:
+  #       - replace-me.invalid       # <-- your host (same as rules host below)
+  #     secretName: gamectl-tls
+  rules:
+    # REQUIRED EDIT: set this to the hostname you will point at your ingress
+    # controller. The .invalid TLD never resolves on purpose — leaving it
+    # unchanged means the UI is unreachable via Ingress (by design, so a bad
+    # default can't silently "work"). Or use scripts/install.sh, which asks.
+    - host: replace-me.invalid
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gamectl
+                port:
+                  number: 8080
