@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    GameCtlDmRounds — server-wide weapon-rotation for the Deathmatch mode.
+    Replaces the kus Deathmatch.dll round-rotation feature, which is
+    upstream-broken on the current CS2 build (OnWeaponCanAcquire
+    NativeException: Invalid function pointer).
+
+    Source: GameCtlDmRounds.cs. Output:
+      bin/Release/GameCtlDmRounds.dll
+    is base64-embedded into kubeUI/src/utils/cs2DmRoundsPluginDll.js and
+    dropped into addons/counterstrikesharp/plugins/disabled/GameCtlDmRounds/
+    by the wizard overlay. Loaded by custom_deathmatch.cfg.
+
+    Built against CSSharp 1.0.367 — same version the kus image ships.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>GameCtlDmRounds</AssemblyName>
+    <RootNamespace>GameCtlDmRounds</RootNamespace>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <Deterministic>true</Deterministic>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CounterStrikeSharp.API" Version="1.0.367" />
+  </ItemGroup>
+
+</Project>
