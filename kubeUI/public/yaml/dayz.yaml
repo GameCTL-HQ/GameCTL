@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gamectl
+  labels:
+    app: dayz
+    game: dayz
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: dayz-pv
+  labels:
+    app: dayz
+    game: dayz
+spec:
+  capacity:
+    storage: 50Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: nfs-static
+  nfs:
+    server: 10.0.0.100
+    path: /mnt/1TBSSD/dayz
+    readOnly: false
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dayz-pvc
+  namespace: gamectl
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: nfs-static
+  volumeName: dayz-pv
