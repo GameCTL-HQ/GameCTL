@@ -1,0 +1,179 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: minecraft
+
+---
+# PV for your Minecraft world/data on NAS
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: minecraft-pv
+spec:
+  capacity:
+    storage: 50Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: nfs-storage
+  nfs:
+    server: 10.0.0.199
+    path: /mnt/1tbssd/minecraft
+    readOnly: false
+
+---
+# PVC for Minecraft world/data
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minecraft-pvc
+  namespace: minecraft
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: nfs-storage
+  volumeName: minecraft-pv
+
+---
+# PV for BlueMap webroot (tiles + web app) on NAS
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: bluemap-webroot-pv
+spec:
+  capacity:
+    storage: 50Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: nfs-storage
+  nfs:
+    server: 10.0.0.199
+    path: /mnt/1tbssd/minecraftmap
+    readOnly: false
+
+---
+# PVC for BlueMap webroot
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bluemap-webroot-pvc
+  namespace: minecraft
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: nfs-storage
+  volumeName: bluemap-webroot-pv
+
+---
+# Minecraft Deployment (Paper + BlueMap auto-install, BlueMap webroot mounted)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minecraft
+  namespace: minecraft
+  labels:
+    app: minecraft
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minecraft
+  template:
+    metadata:
+      labels:
+        app: minecraft
+    spec:
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: minecraft-server
+          image: itzg/minecraft-server:latest
+          imagePullPolicy: Always
+          env:
+            - name: EULA
+              value: "TRUE"
+            - name: MEMORY
+              value: "4G"
+            # Run Paper so plugins work
+            - name: TYPE
+              value: "PAPER"
+            # Auto-install BlueMap via Spiget (resource 83557)
+            - name: SPIGET_RESOURCES
+              value: "83557"
+            # Keep your edited ops/whitelist files
+            - name: OVERRIDE_OPS
+              value: "FALSE"
+            - name: OVERRIDE_WHITELIST
+              value: "FALSE"
+          ports:
+            - name: minecraft-tcp
+              containerPort: 25565
+              protocol: TCP
+            # BlueMap built-in webserver (default 8100)
+            - name: bluemap-web
+              containerPort: 8100
+              protocol: TCP
+          volumeMounts:
+            - name: minecraft-storage
+              mountPath: /data
+            # Mount BlueMap webroot where BlueMap expects it
+            - name: bluemap-webroot
+              mountPath: /data/bluemap/web
+      volumes:
+        - name: minecraft-storage
+          persistentVolumeClaim:
+            claimName: minecraft-pvc
+        - name: bluemap-webroot
+          persistentVolumeClaim:
+            claimName: bluemap-webroot-pvc
+
+---
+# Service for Minecraft with MetalLB (keep your existing IP)
+apiVersion: v1
+kind: Service
+metadata:
+  name: minecraft-service
+  namespace: minecraft
+  annotations:
+    metallb.universe.tf/address-pool: default
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  loadBalancerIP: 10.0.0.168
+  ports:
+    - name: minecraft-tcp
+      port: 25565
+      targetPort: 25565
+      protocol: TCP
+  selector:
+    app: minecraft
+
+---
+# Separate Service for BlueMap web UI on a different MetalLB IP
+apiVersion: v1
+kind: Service
+metadata:
+  name: bluemap-service
+  namespace: minecraft
+  annotations:
+    metallb.universe.tf/address-pool: default
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  loadBalancerIP: 10.0.0.186
+  ports:
+    - name: bluemap-web
+      port: 8100
+      targetPort: 8100
+      protocol: TCP
+  selector:
+    app: minecraft

@@ -1,0 +1,105 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: satisfactory
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: satisfactory-pv
+spec:
+  capacity:
+    storage: 50Gi
+  accessModes: ["ReadWriteMany"]
+  storageClassName: manual
+  persistentVolumeReclaimPolicy: Retain
+  nfs:
+    server: 10.0.0.199
+    path: /mnt/1tbssd/satisfactory
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: satisfactory-pvc
+  namespace: satisfactory
+spec:
+  accessModes: ["ReadWriteMany"]
+  storageClassName: manual
+  resources:
+    requests:
+      storage: 50Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: satisfactory
+  namespace: satisfactory
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: satisfactory
+  template:
+    metadata:
+      labels:
+        app: satisfactory
+    spec:
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: "OnRootMismatch"
+      containers:
+        - name: server
+          image: 10.0.0.101:5000/satisfactory-server:latest
+          imagePullPolicy: Always
+          env:
+            - { name: PUID, value: "1000" }
+            - { name: PGID, value: "1000" }
+            - { name: BRANCH, value: "public" }
+            - { name: INSTALL_IF_MISSING, value: "true" }
+            - { name: RUN_UPDATE_ON_START, value: "false" }
+            - { name: ATTEMPTS, value: "6" }
+            - { name: SERVERGAMEPORT, value: "7777" }
+            - { name: RELIABLEPORT, value: "8888" }
+            - { name: MULTIHOME, value: "0.0.0.0" }
+            - { name: ENABLE_CROSSPLAY, value: "false" }
+            - { name: HOME, value: "/srv/satisfactory" }
+            - { name: XDG_CONFIG_HOME, value: "/srv/satisfactory/.config" }
+          ports:
+            - { name: game-udp,     containerPort: 7777,  protocol: UDP }
+            - { name: game-tcp,     containerPort: 7777,  protocol: TCP }
+            - { name: reliable-udp, containerPort: 8888,  protocol: UDP }
+            - { name: reliable-tcp, containerPort: 8888,  protocol: TCP }
+            - { name: beacon-udp,   containerPort: 15000, protocol: UDP }
+            - { name: query-udp,    containerPort: 15777, protocol: UDP }
+          volumeMounts:
+            - name: data
+              mountPath: /srv/satisfactory
+          resources:
+            requests:
+              cpu: "1"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: satisfactory-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: satisfactory
+  namespace: satisfactory
+spec:
+  type: LoadBalancer
+  loadBalancerIP: 10.0.0.186
+  selector:
+    app: satisfactory
+  externalTrafficPolicy: Cluster
+  ports:
+    - { name: udp-game,     port: 7777,  targetPort: 7777,  protocol: UDP }
+    - { name: tcp-game,     port: 7777,  targetPort: 7777,  protocol: TCP }
+    - { name: udp-reliable, port: 8888,  targetPort: 8888,  protocol: UDP }
+    - { name: tcp-reliable, port: 8888,  targetPort: 8888,  protocol: TCP }
+    - { name: beacon-udp,   port: 15000, targetPort: 15000, protocol: UDP }
+    - { name: query-udp,    port: 15777, targetPort: 15777, protocol: UDP }
