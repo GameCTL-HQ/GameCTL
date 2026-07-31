@@ -1,0 +1,139 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cs2
+---
+# HostPath PV: binds THIS node's /mnt/1tbssd/cs2 into the pod
+# (Pin the pod to this node if you have multiple; see nodeSelector below)
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: cs2-pv
+spec:
+  capacity:
+    storage: 50Gi
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: manual
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /mnt/1tbssd/cs2
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cs2-pvc
+  namespace: cs2
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: manual
+  resources:
+    requests:
+      storage: 50Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cs2
+  namespace: cs2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cs2
+  template:
+    metadata:
+      labels:
+        app: cs2
+    spec:
+      # Optional: pull from your private registry (uncomment if needed)
+      # imagePullSecrets:
+      #   - name: my-regcred
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: cs2
+          image: 10.0.0.101:5000/cs2:latest  # <— change if you use a different registry
+          imagePullPolicy: Always
+          env:
+            - name: SRCDS_TOKEN
+              # Placeholder — supply your own GSLT (steamgamesettings.com,
+              # App ID 730). Blank runs a LAN/direct-connect server.
+              value: ""
+            - name: HOSTNAME
+              value: "CS2 Server"
+            - name: SV_PASSWORD
+              value: ""
+            - name: RCON_PASSWORD
+              value: "changeme"
+            - name: PORT
+              value: "27015"
+            - name: TICKRATE
+              value: "128"
+            - name: MAP
+              value: "de_inferno"
+            - name: GAMETYPE
+              value: "0"      # Classic
+            - name: GAMEMODE
+              value: "1"      # Competitive
+            - name: MAXPLAYERS
+              value: "16"
+            - name: TV_ENABLE
+              value: "0"
+            - name: TV_PORT
+              value: "27020"
+            - name: SKIP_UPDATE
+              value: "1"
+            # Force RCON on startup & load server.cfg (dup the pw here so it’s guaranteed)
+            - name: SRCDS_ADDITIONAL_ARGS
+              value: '+rcon_password "changeme" +exec server.cfg'
+          ports:
+            - name: game-tcp
+              containerPort: 27015
+              protocol: TCP
+            - name: game-udp
+              containerPort: 27015
+              protocol: UDP
+            - name: gotv-udp
+              containerPort: 27020
+              protocol: UDP
+          volumeMounts:
+            - name: data
+              mountPath: /home/steam/cs2
+          # Optional: keep the pod on the same node that hosts the path
+          # (replace with your node's name)
+          # nodeSelector:
+          #   kubernetes.io/hostname: node2
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: cs2-pvc
+---
+# One LoadBalancer Service exposing both TCP and UDP on 27015, plus GOTV UDP 27020
+apiVersion: v1
+kind: Service
+metadata:
+  name: cs2
+  namespace: cs2
+spec:
+  type: LoadBalancer
+  # If you want a fixed MetalLB IP, set it here (change to an IP in your pool)
+  loadBalancerIP: 10.0.0.220
+  externalTrafficPolicy: Local
+  selector:
+    app: cs2
+  ports:
+    - name: game-tcp
+      port: 27015
+      targetPort: 27015
+      protocol: TCP
+    - name: game-udp
+      port: 27015
+      targetPort: 27015
+      protocol: UDP
+    - name: gotv-udp
+      port: 27020
+      targetPort: 27020
+      protocol: UDP
