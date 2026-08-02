@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    GameCtlSurfHUD — minimal speed + map-timer HUD for the kus
+    cs2-modded-server image. Replaces SharpTimer (upstream-broken with a
+    NativeException at HookFunction since 2026-05) for the surf-only use
+    case: subtle speed in u/s plus a map-completion timer based on
+    detecting common trigger_multiple zone names (mapstart/mapend/goal).
+
+    Output: GameCtlSurfHUD/bin/Release/GameCtlSurfHUD.dll → base64-embedded
+    into kubeUI/src/utils/cs2SurfHudPluginDll.js → dropped into
+    addons/counterstrikesharp/plugins/GameCtlSurfHUD/ by the wizard overlay.
+
+    Built against CounterStrikeSharp.API 1.0.367 — the same version the
+    kus image runs (matches GameCtlRtv to avoid two API versions in-process).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>GameCtlSurfHUD</AssemblyName>
+    <RootNamespace>GameCtlSurfHUD</RootNamespace>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <Deterministic>true</Deterministic>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CounterStrikeSharp.API" Version="1.0.367" />
+  </ItemGroup>
+
+</Project>
