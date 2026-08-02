@@ -1,0 +1,245 @@
+# cs2-update-watch — restart the CS2 server when Valve ships an update.
+#
+# Every 20 min: A2S_INFO the server for its running version + player count,
+# ask Steam's UpToDateCheck API if that build is still current. If stale:
+#   - players online -> RCON `say` countdown (15/10/5/2/1 min), then
+#     patch a one-shot CS2 update request onto the Deployment and restart it
+#   - server empty  -> request the update and restart immediately
+#
+# No secrets configured here: the RCON password is read from the
+# cs2-modded deployment's env at runtime via the K8s API.
+#
+# Test knobs (env on the job): FORCE_OUTDATED=1 (pretend stale),
+# FORCE_POPULATED=1 (pretend players online), SLEEP_SCALE=1 (1s "minutes"),
+# RESTART=0 (dry run, never patch).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cs2-update-watch
+  namespace: gamectl
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cs2-update-watch
+  namespace: gamectl
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["cs2-modded"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cs2-update-watch
+  namespace: gamectl
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cs2-update-watch
+subjects:
+  - kind: ServiceAccount
+    name: cs2-update-watch
+    namespace: gamectl
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cs2-update-watch-script
+  namespace: gamectl
+data:
+  watch.py: |
+    #!/usr/bin/env python3
+    """Restart the CS2 deployment when Valve ships an update (see manifest header)."""
+    import json, os, socket, ssl, struct, time, urllib.request
+
+    HOST = os.environ.get("CS2_HOST", "cs2-modded.gamectl.svc.cluster.local")
+    PORT = int(os.environ.get("CS2_PORT", "27015"))
+    NS = os.environ.get("NAMESPACE", "gamectl")
+    DEPLOY = os.environ.get("DEPLOYMENT", "cs2-modded")
+    WARN_MIN = int(os.environ.get("WARN_MINUTES", "15"))
+    SLEEP_SCALE = int(os.environ.get("SLEEP_SCALE", "60"))  # secs per "minute"
+    RESTART = os.environ.get("RESTART", "1") == "1"
+    FORCE_OUTDATED = os.environ.get("FORCE_OUTDATED") == "1"
+    FORCE_POPULATED = os.environ.get("FORCE_POPULATED") == "1"
+    SA = "/var/run/secrets/kubernetes.io/serviceaccount"
+
+    def log(m): print(m, flush=True)
+
+    def recvn(s, n):
+        d = b""
+        while len(d) < n:
+            c = s.recv(n - len(d))
+            if not c: raise ConnectionError("short read")
+            d += c
+        return d
+
+    def a2s_info():
+        """(version, players) via A2S_INFO, handling the challenge round-trip."""
+        q = b"\xff\xff\xff\xffTSource Engine Query\x00"
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(5)
+        try:
+            s.sendto(q, (HOST, PORT))
+            r = s.recv(4096)
+            if r[4] == 0x41:  # challenge
+                s.sendto(q + r[5:9], (HOST, PORT))
+                r = s.recv(4096)
+            if r[4] != 0x49:
+                raise ValueError("unexpected A2S response 0x%02x" % r[4])
+        finally:
+            s.close()
+        i = 6  # past header + protocol byte
+        for _ in range(4):  # name, map, folder, game
+            i = r.index(b"\x00", i) + 1
+        i += 2              # app id (short)
+        players = r[i]
+        i += 3 + 4          # players/max/bots + type/env/visibility/vac
+        return r[i:r.index(b"\x00", i)].decode(), players
+
+    def steam_up_to_date(version_digits):
+        url = ("https://api.steampowered.com/ISteamApps/UpToDateCheck/v1"
+               "?appid=730&version=%s" % version_digits)
+        with urllib.request.urlopen(url, timeout=10) as f:
+            return json.load(f)["response"]
+
+    def kube(method, path, body=None, ctype="application/json"):
+        with open(SA + "/token") as f: tok = f.read()
+        ctx = ssl.create_default_context(cafile=SA + "/ca.crt")
+        req = urllib.request.Request(
+            "https://kubernetes.default.svc" + path,
+            data=None if body is None else json.dumps(body).encode(),
+            method=method,
+            headers={"Authorization": "Bearer " + tok, "Content-Type": ctype})
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as f:
+            return json.load(f)
+
+    def rcon_password():
+        dep = kube("GET", "/apis/apps/v1/namespaces/%s/deployments/%s" % (NS, DEPLOY))
+        for c in dep["spec"]["template"]["spec"]["containers"]:
+            for e in c.get("env", []):
+                if e.get("name") == "RCON_PASSWORD" and "value" in e:
+                    return e["value"]
+        return None
+
+    def rcon_say(pw, msg):
+        """One-shot Source RCON: auth, `say`, close."""
+        def pkt(pid, ptype, body):
+            b = body.encode() + b"\x00\x00"
+            return struct.pack("<iii", len(b) + 8, pid, ptype) + b
+        s = socket.create_connection((HOST, PORT), timeout=5)
+        try:
+            s.sendall(pkt(1, 3, pw))
+            while True:  # servers may send an empty RESPONSE_VALUE before auth reply
+                ln = struct.unpack("<i", recvn(s, 4))[0]
+                pid, ptype = struct.unpack("<ii", recvn(s, ln)[:8])
+                if ptype == 2: break
+            if pid == -1: raise RuntimeError("RCON auth refused")
+            s.sendall(pkt(2, 2, "say " + msg))
+            time.sleep(0.3)  # let the server consume it before we close
+        finally:
+            s.close()
+
+    def warn(pw, text):
+        try:
+            rcon_say(pw, text)
+            log("warned: " + text)
+        except Exception as e:
+            log("warn failed (%s); continuing" % e)
+
+    def restart():
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        kube("PATCH", "/apis/apps/v1/namespaces/%s/deployments/%s" % (NS, DEPLOY),
+             {"metadata": {"annotations": {"gamectl.io/auto-update": "off"}},
+              "spec": {"template": {"metadata": {"annotations": {
+                 "gamectl.io/cs2-update-request-at": now,
+                 "gamectl.io/update-restart-at": now}}}}},
+             "application/strategic-merge-patch+json")
+        log("requested one-shot cs2 update + restarted deployment/%s at %s" % (DEPLOY, now))
+
+    def main():
+        try:
+            version, players = a2s_info()
+        except Exception as e:
+            log("server not reachable over A2S (%s); skipping this run" % e)
+            return
+        resp = steam_up_to_date(version.replace(".", ""))
+        log("server %s, %d player(s), steam: %s" % (version, players, resp))
+        if resp.get("up_to_date") and not FORCE_OUTDATED:
+            return
+        if FORCE_POPULATED: players = max(players, 1)
+        if players == 0:
+            log("update available and server empty -> restarting now")
+            if RESTART: restart()
+            return
+        pw = rcon_password()
+        if pw is None:
+            log("no RCON_PASSWORD on deployment; will restart without warnings")
+        marks = sorted({m for m in (WARN_MIN, 10, 5, 2, 1) if m <= WARN_MIN},
+                       reverse=True)
+        for i, m in enumerate(marks):
+            if pw:
+                warn(pw, "CS2 update released — server restarts in %d min to "
+                         "install it. Reconnect after!" % m)
+            nxt = marks[i + 1] if i + 1 < len(marks) else 0
+            time.sleep((m - nxt) * SLEEP_SCALE)
+            try:
+                _, players = a2s_info()
+                if players == 0 and not FORCE_POPULATED:
+                    log("server emptied out; restarting early")
+                    break
+            except Exception:
+                pass
+        if pw:
+            warn(pw, "Restarting NOW to install the update — back in a few minutes.")
+        if RESTART: restart()
+
+    main()
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cs2-update-watch
+  namespace: gamectl
+spec:
+  schedule: "*/20 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 1500   # 15 min countdown + slack
+      template:
+        spec:
+          serviceAccountName: cs2-update-watch
+          restartPolicy: Never
+          containers:
+            - name: watch
+              image: python:3.12-alpine
+              command: ["python3", "/app/watch.py"]
+              env:
+                - name: WARN_MINUTES
+                  value: "15"
+                # Set explicitly: the `cs2` Service makes kubelet inject
+                # CS2_PORT=tcp://<clusterIP>:27015, which shadows the script's
+                # "27015" default and blows up int(). Explicit env wins.
+                - name: CS2_PORT
+                  value: "27015"
+              volumeMounts:
+                - name: script
+                  mountPath: /app
+                  readOnly: true
+              resources:
+                requests: { cpu: 10m, memory: 32Mi }
+                limits: { memory: 128Mi }
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+                allowPrivilegeEscalation: false
+          volumes:
+            - name: script
+              configMap:
+                name: cs2-update-watch-script
