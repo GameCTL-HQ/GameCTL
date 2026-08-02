@@ -1,0 +1,112 @@
+# Dedicated MariaDB for the CS2 surf stack (SharpTimer).
+#
+# WHY: SharpTimer's default SQLite backend ships a libe_sqlite3.so built for
+# glibc 2.33, but the CS2 Steam Runtime 3 "sniper" container has glibc 2.31, so
+# every timer DB write fails to load the native lib and SIGABRTs (exit 134) the
+# whole cs2 process. MySQL uses the pure-managed MySqlConnector driver — no
+# glibc-sensitive native lib — so the crash class disappears.
+#
+# Dedicated on purpose: NOT reusing passbolt-mariadb (that holds secrets).
+#
+# The credentials live in the `cs2-mariadb-secret` Secret, created out-of-band
+# (kept OUT of git) with:
+#   kubectl -n gamectl create secret generic cs2-mariadb-secret \
+#     --from-literal=MARIADB_ROOT_PASSWORD=... \
+#     --from-literal=MARIADB_DATABASE=sharptimer \
+#     --from-literal=MARIADB_USER=sharptimer \
+#     --from-literal=MARIADB_PASSWORD=...
+#
+# SharpTimer is pointed here via cfg/SharpTimer/mysqlConfig.json on the cs2 NFS
+# data volume (also out of git — it carries the password).
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cs2-mariadb-data
+  namespace: gamectl
+  labels:
+    app: cs2-mariadb
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: nfs-ssd      # default SC — same 1TBSSD NFS the other DBs use
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cs2-mariadb
+  namespace: gamectl
+  labels:
+    app: cs2-mariadb
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate              # single RWO volume — never run two pods at once
+  selector:
+    matchLabels:
+      app: cs2-mariadb
+  template:
+    metadata:
+      labels:
+        app: cs2-mariadb
+    spec:
+      containers:
+        - name: mariadb
+          image: mariadb:10.11   # matches the known-good passbolt-mariadb in-cluster
+          envFrom:
+            - secretRef:
+                name: cs2-mariadb-secret
+          args:
+            - --max-connections=100
+          ports:
+            - name: mysql
+              containerPort: 3306
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          # TCP probe, not healthcheck.sh: the image's healthcheck writes
+          # /var/lib/mysql/.my-healthcheck.cnf, which on this NFS datadir comes
+          # out world-writable and is then IGNORED by MariaDB → the probe
+          # connects with no password → access denied → liveness kills the pod.
+          # During first-init MariaDB binds only the unix socket, so TCP stays
+          # closed until the real server is up on 3306 — exactly what we want.
+          readinessProbe:
+            tcpSocket:
+              port: 3306
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 3306
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: cs2-mariadb-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cs2-mariadb
+  namespace: gamectl
+  labels:
+    app: cs2-mariadb
+spec:
+  selector:
+    app: cs2-mariadb
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306

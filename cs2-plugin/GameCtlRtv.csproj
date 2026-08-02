@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    GameCtlRtv — two-stage Rock-The-Vote plugin for CounterStrikeSharp.
+    Built against the CounterStrikeSharp.API the kus cs2-modded-server runs
+    (1.0.367). Output GameCtlRtv.dll is dropped into the server's
+    addons/counterstrikesharp/plugins/GameCtlRtv/ via the GameCTL overlay.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>GameCtlRtv</AssemblyName>
+    <RootNamespace>GameCtlRtv</RootNamespace>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <Deterministic>true</Deterministic>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CounterStrikeSharp.API" Version="1.0.367" />
+  </ItemGroup>
+
+  <!--
+    GameCtlSurfHUD is a sibling plugin with its own .csproj. Exclude its
+    sources from this assembly so the two don't collide on AssemblyVersion
+    and friends.
+  -->
+  <ItemGroup>
+    <Compile Remove="GameCtlSurfHUD/**" />
+    <None Remove="GameCtlSurfHUD/**" />
+    <EmbeddedResource Remove="GameCtlSurfHUD/**" />
+    <Compile Remove="GameCtlDmRounds/**" />
+    <None Remove="GameCtlDmRounds/**" />
+    <EmbeddedResource Remove="GameCtlDmRounds/**" />
+    <Compile Remove="GameCtlPropHunt/**" />
+    <None Remove="GameCtlPropHunt/**" />
+    <EmbeddedResource Remove="GameCtlPropHunt/**" />
+  </ItemGroup>
+
+</Project>
