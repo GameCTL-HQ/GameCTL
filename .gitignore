@@ -1,0 +1,92 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+
+# --- Node ---
+node_modules/
+kubeUI/dist/
+kubeUI/dist-ssr/
+*.local
+.npm/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Editor / OS ---
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.suo
+
+# --- Logs ---
+*.log
+logs/
+logs.txt
+
+# --- Credentials & cluster artifacts (NEVER commit) ---
+# Kubeconfigs
+*kubeconfig*
+kubeconfig
+uploaded-kubeconfig
+sa-kubeconfig
+
+# Tokens, certs, keys
+token.txt
+*.token
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+ca.crt
+
+# --- Build artifacts ---
+*.exe
+*.bin
+# The built binary only. A bare `gamectl` here previously also matched the
+# `server/cmd/gamectl/` SOURCE directory, silently excluding main.go from the
+# repo entirely. Keep these anchored to the actual build outputs.
+/gamectl
+/server/bin/gamectl
+# (server/internal/ui/dist/ rules live in server/.gitignore — keeps the
+# .gitkeep marker so //go:embed compiles on a fresh clone)
+
+# --- Misc ---
+*.bak
+*.tmp
+
+# --- Local-only safety nets ---
+.git.old/
+*.old/
+
+# --- Local agent / editor state (not shared) ---
+.claude/settings.local.json
+
+# NOTE: everything in scripts/ is intentionally TRACKED (it belongs in
+# GitLab) but is INTERNAL BY DEFAULT for the public GitHub mirror — only
+# the PUBLIC_SCRIPTS allowlist in scripts/sync-public.sh is published.
+# Add a new script there only if it is genuinely a public interface.
+security-reports/
+
+# --- Internal / private (not part of the public project) ---
+*NOTES.md
+the maintainer notes
+docs/
+k8s/PUSH_AND_DEPLOY.md
+security-reports/
+# scripts/ is published by allowlist; everything else there is internal.
+scripts/*
+!scripts/install.sh
+!scripts/build-plugins.sh
